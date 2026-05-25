@@ -10,6 +10,14 @@ const boardMap = {
   "Behavioral Sciences, Board of": 200
 };
 
+// Dictionary mapping raw DCA status codes to readable text strings
+const statusMap = {
+  "20": "Current / Active",
+  "50": "Expired",
+  "1": "Active",
+  // Fallback text will be applied if a code falls outside these common parameters
+};
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -31,17 +39,16 @@ export default {
       const { firstName, lastName, boardName } = body;
 
       if (!firstName || !lastName || !boardName) {
-        return new Response(JSON.stringify({ error: "Missing firstName, lastName, or boardName" }), { status: 400 });
+        return new Response(JSON.stringify({ error: "Missing required tracking parameters." }), { status: 400 });
       }
 
-      // Convert Lark text to DCA code. Fallback to empty array if no match found.
       const targetCode = boardMap[boardName];
       const clientCodeArray = targetCode ? [targetCode] : [];
 
       const dcaPayload = {
         searchMethod: "SNDX", 
         name: lastName.trim(), 
-        clientCodeId: clientCodeArray, // Dynamic board code array passes here
+        clientCodeId: clientCodeArray,
         licenseNumbers: [], statusId: [], city: [], county: []
       };
 
@@ -62,22 +69,42 @@ export default {
       const dcaData = await dcaResponse.json();
       const results = dcaData.results || [];
 
-      // Loop through matches to verify the First Name aligns
-      const exactProvider = results.find(p => 
-        p.name.toLowerCase().includes(firstName.trim().toLowerCase())
-      );
+      // Clean input variables for strict lookup matches
+      const cleanFirst = firstName.trim().toLowerCase();
+      const cleanLast = lastName.trim().toLowerCase();
 
-      let responsePayload = exactProvider ? {
-        found: true,
-        licenseNumber: exactProvider.licenseNumber,
-        status: exactProvider.primaryStatusCode,
-        expiration: exactProvider.expirationDate || "N/A"
-      } : {
-        found: false,
-        licenseNumber: "NOT FOUND",
-        status: "N/A",
-        expiration: "N/A"
-      };
+      // Find the exact provider where both last name and first name are present in the DCA string
+      const exactProvider = results.find(p => {
+        const dcaNameLower = p.name.toLowerCase();
+        return dcaNameLower.includes(cleanLast) && dcaNameLower.includes(cleanFirst);
+      });
+
+      let responsePayload;
+      if (exactProvider) {
+        // Translate the raw numeric status string to a readable text message
+        const rawStatus = exactProvider.primaryStatusCode;
+        const readableStatus = statusMap[rawStatus] || `Status Code ${rawStatus}`;
+
+        // Clean up the ISO date timestamp into a readable date string
+        let displayDate = "N/A";
+        if (exactProvider.expirationDate) {
+          displayDate = exactProvider.expirationDate.split('T')[0]; // Returns "YYYY-MM-DD"
+        }
+
+        responsePayload = {
+          found: true,
+          licenseNumber: exactProvider.licenseNumber,
+          status: readableStatus,
+          expiration: displayDate
+        };
+      } else {
+        responsePayload = {
+          found: false,
+          licenseNumber: "NOT FOUND",
+          status: "N/A",
+          expiration: "N/A"
+        };
+      }
 
       return new Response(JSON.stringify(responsePayload), {
         status: 200,
