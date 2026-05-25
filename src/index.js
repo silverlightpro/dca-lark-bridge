@@ -1,3 +1,15 @@
+// Dictionary mapping Lark text choices to official DCA clientCode numbers
+const boardMap = {
+  "Vocational Nursing and Psychiatric Technicians, Board of": 430,
+  "Registered Nursing, Board of": 400,
+  "Respiratory Care Board": 700,
+  "Physician Assistant Board": 950,
+  "Physical Therapy Board of California": 720,
+  "Occupational Therapy, California Board of": 710,
+  "Medical Board of California": 800,
+  "Behavioral Sciences, Board of": 200
+};
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -16,16 +28,20 @@ export default {
 
     try {
       const body = await request.json();
-      const { firstName, lastName } = body;
+      const { firstName, lastName, boardName } = body;
 
-      if (!firstName || !lastName) {
-        return new Response(JSON.stringify({ error: "Missing names" }), { status: 400 });
+      if (!firstName || !lastName || !boardName) {
+        return new Response(JSON.stringify({ error: "Missing firstName, lastName, or boardName" }), { status: 400 });
       }
+
+      // Convert Lark text to DCA code. Fallback to empty array if no match found.
+      const targetCode = boardMap[boardName];
+      const clientCodeArray = targetCode ? [targetCode] : [];
 
       const dcaPayload = {
         searchMethod: "SNDX", 
         name: lastName.trim(), 
-        clientCodeId: [800], 
+        clientCodeId: clientCodeArray, // Dynamic board code array passes here
         licenseNumbers: [], statusId: [], city: [], county: []
       };
 
@@ -46,6 +62,7 @@ export default {
       const dcaData = await dcaResponse.json();
       const results = dcaData.results || [];
 
+      // Loop through matches to verify the First Name aligns
       const exactProvider = results.find(p => 
         p.name.toLowerCase().includes(firstName.trim().toLowerCase())
       );
